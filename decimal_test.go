@@ -581,3 +581,14 @@ func TestDecimalFormat(t *testing.T) {
 		}
 	}
 }
+
+func TestDecimalNormal(t *testing.T) {
+	var dec FixedDecimal
+	if err := DecimalFromAsciiString("-100", &dec); err != nil {
+		t.Fatal("failed")
+	}
+	dec.setNormal()
+	if !dec.IsNeg() {
+		t.Fatal("failed")
+	}
+}
