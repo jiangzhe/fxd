@@ -313,6 +313,8 @@ func TestDecimalDiv(t *testing.T) {
 		{"-987654321.1234567", "12345678.9987654", "-80.000000099000200808"},
 		{"-987654321.12345678", "12345678.99876543", "-80.000000099000012888900031007"},
 		{"-987654321.123456789", "12345678.998765432", "-80.000000099000000657900001515"},
+		{"0.170511", "-353390023.459963", "-0.000000000482500887"},
+		{"0.170511", "-353390023", "-0.000000000482500888"},
 	} {
 		if err := DecimalFromAsciiString(c.input1, &fd1); err != nil {
 			t.Fatalf("failed %v", err)
@@ -324,6 +326,7 @@ func TestDecimalDiv(t *testing.T) {
 			t.Fatalf("failed %v", err)
 		}
 		actual := fd3.ToString(-1)
+		fmt.Printf("fd1=%v, fd2=%v\n", fd1, fd2)
 		fmt.Printf("%v/%v=%v\n", fd1.ToString(-1), fd2.ToString(-1), actual)
 		if actual != c.expected {
 			t.Fatalf("result mismatch")
