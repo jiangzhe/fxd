@@ -86,7 +86,6 @@ func (fd *FixedDecimal) IsSpecial() bool {
 }
 
 func (fd *FixedDecimal) setNormal() {
-	fd.intg &= 0x7f
 	fd.frac &= 0x3f
 }
 
