@@ -412,11 +412,18 @@ func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac
 	// If left first non-zero unit is smaller than right one,
 	// set dividendShift to -1 so that use second unit to start the division.
 	resultIntg := (lhsPrec - lhsExtFrac) - (rhsPrec - rhsExtFrac)
+
 	var dividendShift int
 	if lhs.lsu[lhsNonZero] >= rhs.lsu[rhsNonZero] {
 		resultIntg++
 	} else {
-		dividendShift = -1 // dividend should be shift by one unit
+		dividendShift = -1 // dividend should be left shift by one unit
+	}
+	// because we may eliminate leading zeroes of fractional parts,
+	// we must shift result accordingly, e.g. 1e-15 / 1e-2
+	resultShift := (lhsNonZero - lfu) - (rhsNonZero - rfu)
+	if resultShift > 0 {
+		resultShift = 0
 	}
 
 	var resultIntgUnits int
@@ -437,30 +444,26 @@ func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac
 		resultFracUnits = MaxFracUnits
 	}
 
-	m := resultIntgUnits + resultFracUnits // units of the quotient
+	resultUnits := resultIntgUnits + resultFracUnits // units of the quotient
 	// here we identify short/long division
 	// short division means the divider only has single unit,
 	// otherwise, long division
 	if rhsNonZero == 0 { // short division
 		result.SetZero()
-		var buf1 [MaxUnits + 1]int32
-		copy(buf1[m:m+lhsNonZero+1], lhs.lsu[:lhsNonZero+1])
 		d := int64(rhs.lsu[rhsNonZero]) // single divider
-		var u, q, rem int64             // remainder
+		var u, q, rem int64
 		if dividendShift < 0 {
-			rem = int64(buf1[m+lhsNonZero])
+			rem = int64(lhs.lsu[lhsNonZero])
 		}
-		for j := m; j > 0; j-- {
-			uidx := j + lhsNonZero + dividendShift
-			if uidx >= 0 {
-				u = rem*Unit + int64(buf1[uidx])
+		for i, j := lhsNonZero+dividendShift, resultUnits+resultShift-1; j >= 0; i, j = i-1, j-1 { // i is index of lhs, j is index of result
+			if i >= 0 {
+				u = rem*Unit + int64(lhs.lsu[i])
 			} else {
 				u = rem * Unit
 			}
-
-			q = u / d                  // div
-			rem = u - q*d              // update remainder
-			result.lsu[j-1] = int32(q) // update result
+			q = u / d                // div
+			rem = u - q*d            // update remainder
+			result.lsu[j] = int32(q) // update result
 		}
 		result.intg = int8(resultIntg)
 		result.frac = int8(resultFracUnits * DigitsPerUnit)
@@ -475,12 +478,12 @@ func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac
 	var buf2 [MaxUnits]int32     // store normalized rhs
 	var i, j int                 // loop index control
 	if normFactor == 1 {         // happy path, if rhs.lsu[rhsNonZero] >= Unit / 2
-		copy(buf1[m:m+lhsNonZero+1], lhs.lsu[:lhsNonZero+1])
+		copy(buf1[resultUnits:resultUnits+lhsNonZero+1], lhs.lsu[:lhsNonZero+1])
 		copy(buf2[:rhsNonZero+1], rhs.lsu[:rhsNonZero+1])
 	} else {
 		var carry int64
 		// normalize lhs into buf1
-		for i, j = 0, m; i <= lhsNonZero; i, j = i+1, j+1 {
+		for i, j = 0, resultUnits; i <= lhsNonZero; i, j = i+1, j+1 {
 			v := int64(lhs.lsu[i])*int64(normFactor) + carry
 			carry = v / Unit
 			buf1[j] = int32(v - carry*Unit)
@@ -499,13 +502,14 @@ func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac
 	}
 	vd0 := int64(buf2[rhsNonZero])   // rhs most significant unit
 	vd1 := int64(buf2[rhsNonZero-1]) // rhs second significant unit
-	for j = m; j > 0; j-- {
+	for i, j = resultUnits+lhsNonZero+dividendShift, resultUnits-1+resultShift; j >= 0; i, j = i-1, j-1 {
 		// D3. make the guess on u1
-		uidx := j + lhsNonZero + dividendShift
-		u0 := int64(buf1[uidx+1])
+		// uidx := j + lhsNonZero + dividendShift
+		// u0 := int64(buf1[uidx+1])
+		u0 := int64(buf1[i+1])
 		var u1 int64
-		if uidx >= 0 {
-			u1 = int64(buf1[uidx])
+		if i >= 0 {
+			u1 = int64(buf1[i])
 		}
 		v := u0*Unit + u1
 		qhat := v / vd0
@@ -515,8 +519,8 @@ func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac
 			panic("unreachable")
 		}
 		var u2 int64
-		if uidx > 0 {
-			u2 = int64(buf1[uidx-1])
+		if i > 0 {
+			u2 = int64(buf1[i-1])
 		}
 		for qhat*vd1 > rhat*Unit+u2 { // check if qhat can satisfy next unit
 			qhat--      // decrese qhat
@@ -525,9 +529,9 @@ func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac
 		// D4. multiply and subtract
 		var mulV, mulV0, carry int64 // the product, product within current unit, carry of multiplication
 		var subV, borrow int32       // the diff and boorow of subtraction
-		var i, msIdx int
-		for msIdx = uidx - rhsNonZero; i <= rhsNonZero; i, msIdx = i+1, msIdx+1 {
-			mulV = qhat*int64(buf2[i]) + carry                              // mul
+		var k, msIdx int
+		for msIdx = i - rhsNonZero; k <= rhsNonZero; k, msIdx = k+1, msIdx+1 {
+			mulV = qhat*int64(buf2[k]) + carry                              // mul
 			carry = mulV / Unit                                             // update carry
 			mulV0 = mulV - carry*Unit                                       // in current unit
 			subV, borrow = subWithBorrow(buf1[msIdx], int32(mulV0), borrow) // sub
@@ -544,7 +548,7 @@ func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac
 		} else {
 			buf1[msIdx] = 0 // clear buf1 because multiply w/ subtract succeeds
 		}
-		result.lsu[j-1] = int32(qhat) // update result
+		result.lsu[j] = int32(qhat) // update result
 	}
 	result.intg = int8(resultIntg)
 	result.frac = int8(resultFracUnits * DigitsPerUnit)
