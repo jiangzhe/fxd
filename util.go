@@ -413,3 +413,34 @@ func unitsNonZero(lsu []int32) bool {
 func unitGreaterEqualHalf(val int32) bool {
 	return val >= HalfUnit
 }
+
+func unitsGreaterEqual(lhs []int32, rhs []int32) bool {
+	i := len(lhs) - 1
+	j := len(rhs) - 1
+	for {
+		if lhs[i] > rhs[j] {
+			return true
+		}
+		if lhs[i] < rhs[j] {
+			return false
+		}
+		i--
+		j--
+		if i < 0 {
+			for ; j >= 0; j-- {
+				if rhs[j] > 0 {
+					return false
+				}
+			}
+			return true
+		}
+		if j < 0 {
+			for ; i >= 0; i-- {
+				if lhs[i] > 0 {
+					return true
+				}
+			}
+		}
+		return true
+	}
+}

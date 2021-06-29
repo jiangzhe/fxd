@@ -375,7 +375,7 @@ func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac
 	var lhsNonZero, rhsNonZero int
 
 	// check and remove leading zeros in rhs
-	for rhsNonZero = riu + rfu - 1; rhsNonZero >= rfu; rhsNonZero-- {
+	for rhsNonZero = riu + rfu - 1; rhsNonZero >= 0; rhsNonZero-- {
 		if rhs.lsu[rhsNonZero] != 0 {
 			break
 		}
@@ -406,45 +406,41 @@ func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac
 	if incrFrac < 0 {
 		incrFrac = 0
 	}
-	// guess the quotient integral digits:
-	// if left first non-zero unit is no less than right first non-zero unit,
-	// the quotient may probably have one additional integral digit.
-	// If left first non-zero unit is smaller than right one,
-	// set dividendShift to -1 so that use second unit to start the division.
-	resultIntg := (lhsPrec - lhsExtFrac) - (rhsPrec - rhsExtFrac)
 
-	var dividendShift int
-	if lhs.lsu[lhsNonZero] >= rhs.lsu[rhsNonZero] {
-		resultIntg++
-	} else {
-		dividendShift = -1 // dividend should be left shift by one unit
-	}
-	// because we may eliminate leading zeroes of fractional parts,
-	// we must shift result accordingly, e.g. 1e-15 / 1e-2
-	resultShift := (lhsNonZero - lfu) - (rhsNonZero - rfu)
-	if resultShift > 0 {
-		resultShift = 0
-	}
-
-	var resultIntgUnits int
-	if resultIntg > 0 {
-		resultIntgUnits = getUnits(resultIntg)
-	} else {
-		resultIntg = 0
-	}
-	// calculate result frac
+	// calculate result frac units
 	resultFracUnits := getUnits(lhsExtFrac + rhsExtFrac + incrFrac)
-	if resultIntgUnits > MaxUnits { // integral overflow
-		return DecErrOverflow
-	}
-	if resultIntgUnits+resultFracUnits > MaxUnits { // integral+fractional overflow
-		resultFracUnits = MaxUnits - resultIntgUnits // fractional truncation required
-	}
 	if resultFracUnits > MaxFracUnits { // still exceeds maximum fractional digits
 		resultFracUnits = MaxFracUnits
 	}
+	// calculate result intg units
+	resultIntg := (lhsPrec - lhsExtFrac) - (rhsPrec - rhsExtFrac)
+	var dividendShift int
+	if unitsGreaterEqual(lhs.lsu[:lhsNonZero+1], rhs.lsu[:rhsNonZero+1]) {
+		resultIntg++ // one more digit
+	} else {
+		dividendShift = -1 // dividend should be shift right one unit to start the division
+	}
+	// now adjust result units based on limitation of maximum precision
+	// and determine the start position of result unit.
+	var resultIntgUnits int
+	var resultStartIdx int // start index of result units for this division
+	if resultIntg > 0 {
+		resultIntgUnits = getUnits(resultIntg)
+		if resultIntgUnits > MaxUnits { // exceeds maximum precision
+			return DecErrOverflow
+		}
+		if resultIntgUnits+resultFracUnits > MaxUnits {
+			resultFracUnits = MaxUnits - resultIntgUnits // truncate extra fractional units
+		}
+		resultStartIdx = resultFracUnits + resultIntgUnits - 1
+	} else {
+		resultIntgUnits = 0
+		resultStartOffset := getUnits(1 - resultIntg)
+		resultStartIdx = resultFracUnits - resultStartOffset
+		resultIntg = 0
+	}
+	resultUnits := resultIntgUnits + resultFracUnits
 
-	resultUnits := resultIntgUnits + resultFracUnits // units of the quotient
 	// here we identify short/long division
 	// short division means the divider only has single unit,
 	// otherwise, long division
@@ -455,7 +451,7 @@ func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac
 		if dividendShift < 0 {
 			rem = int64(lhs.lsu[lhsNonZero])
 		}
-		for i, j := lhsNonZero+dividendShift, resultUnits+resultShift-1; j >= 0; i, j = i-1, j-1 { // i is index of lhs, j is index of result
+		for i, j := lhsNonZero+dividendShift, resultStartIdx; j >= 0; i, j = i-1, j-1 { // i is index of lhs, j is index of result
 			if i >= 0 {
 				u = rem*Unit + int64(lhs.lsu[i])
 			} else {
@@ -502,7 +498,7 @@ func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac
 	}
 	vd0 := int64(buf2[rhsNonZero])   // rhs most significant unit
 	vd1 := int64(buf2[rhsNonZero-1]) // rhs second significant unit
-	for i, j = resultUnits+lhsNonZero+dividendShift, resultUnits-1+resultShift; j >= 0; i, j = i-1, j-1 {
+	for i, j = resultUnits+lhsNonZero+dividendShift, resultStartIdx; j >= 0; i, j = i-1, j-1 {
 		// D3. make the guess on u1
 		// uidx := j + lhsNonZero + dividendShift
 		// u0 := int64(buf1[uidx+1])
@@ -531,11 +527,15 @@ func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac
 		var subV, borrow int32       // the diff and boorow of subtraction
 		var k, msIdx int
 		for msIdx = i - rhsNonZero; k <= rhsNonZero; k, msIdx = k+1, msIdx+1 {
-			mulV = qhat*int64(buf2[k]) + carry                              // mul
-			carry = mulV / Unit                                             // update carry
-			mulV0 = mulV - carry*Unit                                       // in current unit
-			subV, borrow = subWithBorrow(buf1[msIdx], int32(mulV0), borrow) // sub
-			buf1[msIdx] = subV                                              // update buf1 with result
+			mulV = qhat*int64(buf2[k]) + carry // mul
+			carry = mulV / Unit                // update carry
+			mulV0 = mulV - carry*Unit          // in current unit
+			if msIdx < 0 {
+				subV, borrow = subWithBorrow(0, int32(mulV0), borrow) // sub using 0
+			} else {
+				subV, borrow = subWithBorrow(buf1[msIdx], int32(mulV0), borrow) // sub
+				buf1[msIdx] = subV                                              // update buf1 with result
+			}
 		}
 		borrow = buf1[msIdx] - int32(carry) + borrow
 		if borrow == -1 { // qhat is larger, cannot satisfy the whole decimal
