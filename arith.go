@@ -533,7 +533,7 @@ func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac
 			carry = mulV / Unit                // update carry
 			mulV0 = mulV - carry*Unit          // in current unit
 			if msIdx < 0 {
-				subV, borrow = subWithBorrow(0, int32(mulV0), borrow) // sub using 0
+				_, borrow = subWithBorrow(0, int32(mulV0), borrow) // sub using 0
 			} else {
 				subV, borrow = subWithBorrow(buf1[msIdx], int32(mulV0), borrow) // sub
 				buf1[msIdx] = subV                                              // update buf1 with result
