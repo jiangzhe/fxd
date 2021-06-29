@@ -180,9 +180,9 @@ func DecimalFromBytesString(bs []byte, result *FixedDecimal) error {
 	}
 
 	// units of integral part, and fractional part
-	intgUnits := getUnits(int(digits - frac))
-	fracUnits := getUnits(int(frac))
-	up := int(intgUnits + fracUnits - 1) // lsu unit index, from highest to lowest
+	intgUnits := getUnits(digits - frac)
+	fracUnits := getUnits(frac)
+	up := intgUnits + fracUnits - 1 // lsu unit index, from highest to lowest
 	// reset i as parse index
 	i = cfirst
 	// parse integral part
@@ -202,7 +202,7 @@ func DecimalFromBytesString(bs []byte, result *FixedDecimal) error {
 			if i == last { // no more digits to read, adjust out if cut > 0
 				break
 			}
-			if mod9(int(cut)) > 0 {
+			if mod9(cut) > 0 {
 				continue
 			}
 			result.lsu[up] = int32(out) // write unit
@@ -213,7 +213,7 @@ func DecimalFromBytesString(bs []byte, result *FixedDecimal) error {
 		// increment i for frac processing
 		i++
 		// handle cut > 0, e.g. '1E2', '1E20'
-		re := mod9(int(cut))
+		re := mod9(cut)
 		result.lsu[up] = int32(out * pow10[re])
 		up--
 		out = 0
@@ -230,7 +230,7 @@ func DecimalFromBytesString(bs []byte, result *FixedDecimal) error {
 			result.lsu[up] = 0
 			up--
 		}
-		cut -= int(headingZeros)
+		cut -= headingZeros
 		// parse fractional part
 		for ; ; i++ {
 			c = bs[i]
@@ -288,10 +288,10 @@ func (fd *FixedDecimal) AppendStringBuffer(buf []byte, frac int) []byte {
 	}
 
 	intgUnits, fracUnits := fd.IntgUnits(), fd.FracUnits()
-	var up = int(intgUnits + fracUnits - 1)
+	var up = intgUnits + fracUnits - 1
 	if intgUnits > 0 { // integral part
 		eliminateHeadingZeros := true
-		for ; up >= int(fracUnits); up-- { // loop until fracional part
+		for ; up >= fracUnits; up-- { // loop until fracional part
 			// for each unit, we divide into 3 3-digit parts and print them each time
 			uv := fd.lsu[up]
 			if eliminateHeadingZeros && uv == 0 { // rare case, integral part exists but zero
