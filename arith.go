@@ -359,6 +359,8 @@ func mulAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) error {
 	return nil
 }
 
+// divAbs divides two decimals' absolute values.
+// It's implementation of Knuth's Algorithm 4.3.1 D, with support on frational numbers.
 func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac int) error {
 	result.resetUnits() // always clear result units first
 	lhsIntg := int(lhs.Intg())
