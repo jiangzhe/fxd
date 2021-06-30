@@ -74,11 +74,7 @@ func DecimalSub(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) erro
 	}
 	if rhs.IsZero() {
 		*result = *lhs
-		if result.IsNeg() {
-			result.setPos()
-		} else {
-			result.setNegAndCheckZero()
-		}
+		return nil
 	}
 	lneg := lhs.IsNeg()
 	rneg := rhs.IsNeg()
@@ -149,12 +145,32 @@ func DecimalDivAny(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, i
 // incrFrac is provided to add more fractional precision. Because all digits are
 // stored in units, the final precision will be rounded to multiple of 9 (DigitsPerUnit).
 func DecimalDiv(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac int) error {
-	if lhs.IsZero() || rhs.IsZero() {
-		result.SetZero()
-		return nil
-	}
 	resultNeg := lhs.IsNeg() != rhs.IsNeg()
 	if err := divAbs(lhs, rhs, result, incrFrac); err != nil {
+		return err
+	}
+	if resultNeg {
+		result.setNegAndCheckZero()
+	}
+	return nil
+}
+
+func DecimalModAny(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) error {
+	if lhs.IsNaN() || rhs.IsNaN() {
+		result.setNaN()
+		return nil
+	}
+	if lhs.IsInf() || rhs.IsInf() {
+		result.setInf()
+		return nil
+	}
+	return DecimalMod(lhs, rhs, result)
+}
+
+// DecimalMod modulos two normal decimals.
+func DecimalMod(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) error {
+	resultNeg := lhs.IsNeg()
+	if err := modAbs(lhs, rhs, result); err != nil {
 		return err
 	}
 	if resultNeg {
@@ -209,6 +225,9 @@ func addAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) error {
 			resultIdx++
 			lhsIdx++
 		}
+		if carry > 0 {
+			result.lsu[resultIdx] = carry
+		}
 	} else if intgUnitDiff < 0 { // rhs has more intgSeg
 		stop = rhsIdx - intgUnitDiff
 		for rhsIdx < stop {
@@ -216,14 +235,27 @@ func addAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) error {
 			resultIdx++
 			rhsIdx++
 		}
+		if carry > 0 {
+			result.lsu[resultIdx] = carry
+		}
 	} else if carry != 0 { // no more inteSeg but carry is non-zero
 		result.lsu[resultIdx] = carry
 	}
 
+	resultIntgNonZero := maxInt(liu, riu) + int(carry)
 	result.frac = maxInt8(lhs.frac, rhs.frac) // unify as maximum frac
-	// there is extra cost to calculate exact integral digits so we expand it to intgUnits*DigitsPerUnit
-	// (optionally plus carry)
-	result.intg = int8(maxInt(liu, riu)*DigitsPerUnit + int(carry))
+	resultFracUnits := result.FracUnits()
+	for ; resultIntgNonZero >= 0; resultIntgNonZero-- {
+		if result.lsu[resultIntgNonZero+resultFracUnits] > 0 {
+			break
+		}
+	}
+	if resultIntgNonZero >= 0 {
+		result.intg = int8((resultIntgNonZero + 1) * DigitsPerUnit) // expand to multiple of DigitsPerUnit
+	} else {
+		result.intg = 0
+	}
+
 	return nil
 }
 
@@ -288,10 +320,19 @@ func subAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) (bool, e
 			result.lsu[i], borrow = subWithBorrow(0, result.lsu[i], borrow)
 		}
 	}
-
+	resultIntgNonZero := maxInt(liu, riu)
 	result.frac = maxInt8(lhs.frac, rhs.frac) // unify as maximum frac
-	// there is extra cost to calculate exact integral digits so we expand it to intgUnits*DigitsPerUnit
-	result.intg = int8(maxInt(liu, riu) * DigitsPerUnit)
+	resultFracUnits := result.FracUnits()
+	for ; resultIntgNonZero >= 0; resultIntgNonZero-- {
+		if result.lsu[resultIntgNonZero+resultFracUnits] > 0 {
+			break
+		}
+	}
+	if resultIntgNonZero >= 0 {
+		result.intg = int8((resultIntgNonZero + 1) * DigitsPerUnit) // expand to multiple of DigitsPerUnit
+	} else {
+		result.intg = 0
+	}
 	return neg, nil
 }
 
@@ -494,9 +535,7 @@ func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac
 			carry = v / Unit
 			buf2[i] = int32(v - carry*Unit)
 		}
-		if carry != 0 {
-			panic("carry must be 0 in divider normalization")
-		}
+		assertTrue(carry == 0, "carry must be zero in divider normalization")
 	}
 	vd0 := int64(buf2[rhsNonZero])   // rhs most significant unit
 	vd1 := int64(buf2[rhsNonZero-1]) // rhs second significant unit
@@ -513,9 +552,7 @@ func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac
 		qhat := v / vd0
 		rhat := v - qhat*vd0
 		// qhat cannot be greater or equal to Unit
-		if qhat >= Unit {
-			panic("unreachable")
-		}
+		assertTrue(qhat < Unit, "qhat must be less than Unit")
 		var u2 int64
 		if i > 0 {
 			u2 = int64(buf1[i-1])
@@ -554,6 +591,229 @@ func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac
 	}
 	result.intg = int8(resultIntg)
 	result.frac = int8(resultFracUnits * DigitsPerUnit)
+	return nil
+}
+
+func modAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) error {
+	result.resetUnits() // always clear result units first
+	lhsIntg := int(lhs.Intg())
+	liu := getUnits(lhsIntg) // lhs intg units
+	lhsFrac := int(lhs.Frac())
+	lfu := getUnits(lhsFrac) // lhs frac units
+	rhsIntg := int(rhs.Intg())
+	riu := getUnits(rhsIntg) // rhs intg units
+	rhsFrac := int(rhs.Frac())
+	rfu := getUnits(rhsFrac)          // rhs frac units
+	lhsExtFrac := lfu * DigitsPerUnit // extended frac with unit size
+	rhsExtFrac := rfu * DigitsPerUnit // extended frac with unit size
+	// leading non-zero unit of lhs and rhs
+	var lhsNonZero, rhsNonZero int
+	// check and remove leading zeros in rhs
+	for rhsNonZero = riu + rfu - 1; rhsNonZero >= 0; rhsNonZero-- {
+		if rhs.lsu[rhsNonZero] != 0 {
+			break
+		}
+	}
+	if rhsNonZero < 0 { // divider is zero
+		return DecErrDivisionByZero
+	}
+	// digits of rhs from leading non-zero position
+	rhsPrec := rhsNonZero*DigitsPerUnit + DigitsPerUnit - unitLeadingZeroes(rhs.lsu[rhsNonZero])
+
+	// check and remove leading zeros in lhs
+	for lhsNonZero = liu + lfu - 1; lhsNonZero >= 0; lhsNonZero-- {
+		if lhs.lsu[lhsNonZero] != 0 {
+			break
+		}
+	}
+	if lhsNonZero < 0 { // dividend is zero
+		result.SetZero()
+		return nil
+	}
+
+	cmp := cmpAbsLsu(liu, lfu, &lhs.lsu, riu, rfu, &rhs.lsu)
+	if cmp < 0 { // lhs is less than rhs
+		if rfu > lfu { // rhs has higher fractional precision
+			copy(result.lsu[rfu-lfu:liu+rfu], lhs.lsu[:lfu+liu])
+			result.frac = int8(rhsFrac)
+			result.intg = int8(lhsIntg)
+			return nil
+		}
+		// lhs has higher fractional precision
+		copy(result.lsu[:lfu+liu], lhs.lsu[:lfu+liu])
+		result.intg = int8(lhsIntg)
+		result.frac = int8(maxInt(lhsFrac, rhsFrac))
+		return nil
+	}
+	if cmp == 0 { // lhs equals to rhs, result is zero
+		// align to max frac of both lhs and rhs
+		result.intg = 0
+		result.frac = int8(maxInt(lhsFrac, rhsFrac))
+		return nil
+	}
+
+	// digits of lhs from leading non-zero position
+	lhsPrec := lhsNonZero*DigitsPerUnit + DigitsPerUnit - unitLeadingZeroes(rhs.lsu[rhsNonZero])
+
+	// calculate result frac units
+	remainderFrac := maxInt(lhsFrac, rhsFrac)
+	remainderFracUnits := getUnits(remainderFrac)
+
+	// calculate result intg units, but result may have leading zeroes that should be removed
+	// at the end
+	quotientIntg := (lhsPrec - lhsExtFrac) - (rhsPrec - rhsExtFrac)
+	var dividendShift int
+	if unitsGreaterEqual(lhs.lsu[:lhsNonZero+1], rhs.lsu[:rhsNonZero+1]) {
+		quotientIntg++ // one more digit
+	} else {
+		dividendShift = -1 // dividend should be shift right one unit to start the division
+	}
+
+	// align frac units between lhs and rhs
+	var lhsLeftShiftUnits, rhsLeftShiftUnits int
+	if lfu < rfu {
+		lhsLeftShiftUnits = rfu - lfu
+	} else if lfu > rfu {
+		rhsLeftShiftUnits = lfu - rfu
+	}
+
+	if rhsNonZero == 0 { // identify short division
+		d := int64(rhs.lsu[0]) // single divider
+		var buf [MaxUnits * 2]int32
+		buflen := lhsLeftShiftUnits + lhsNonZero + 1
+		copy(buf[lhsLeftShiftUnits:buflen], lhs.lsu[:lhsNonZero+1])
+		var u, q, rem int64
+		if dividendShift < 0 {
+			rem = int64(lhs.lsu[lhsNonZero])
+		}
+		stop := rhsNonZero + rhsLeftShiftUnits
+		var i int // i is lhs index
+		for i = buflen - 1 + dividendShift; i >= stop; i-- {
+			u = rem*Unit + int64(buf[i])
+			q = u / d     // div
+			rem = u - q*d // update remainder
+		}
+		resultNonZero := -1
+		if rem > 0 {
+			result.lsu[i+1] = int32(rem)
+			resultNonZero = i + 1
+		}
+		for ; i >= 0; i-- { // copy rest of lhs into result
+			result.lsu[i] = buf[i]
+			if buf[i] > 0 && resultNonZero < 0 {
+				resultNonZero = i
+			}
+		}
+		if resultNonZero >= remainderFracUnits {
+			result.intg = int8(resultNonZero + 1 - remainderFracUnits)
+		} else {
+			result.intg = 0
+		}
+		result.frac = int8(remainderFrac) // keep fraction precision like subtraction
+		return nil
+	}
+
+	buf1len := lhsNonZero + 1 + lhsLeftShiftUnits
+	buf2len := rhsNonZero + 1 + rhsLeftShiftUnits
+
+	// D1. normalization
+	normFactor := Unit / (rhs.lsu[rhsNonZero] + 1)
+	// normalize buf1 and buf2
+	var buf1 [MaxUnits * 2]int32 // store normalized lhs with one extra leading unit
+	var buf2 [MaxUnits * 2]int32 // store normalized rhs
+	if normFactor == 1 {         // happy path, if rhs.lsu[rhsNonZero] >= Unit / 2
+		copy(buf1[lhsLeftShiftUnits:buf1len], lhs.lsu[:lhsNonZero+1])
+		copy(buf2[rhsLeftShiftUnits:buf2len], rhs.lsu[:rhsNonZero+1])
+	} else {
+		var carry int64
+		var i int // loop index control
+		// normalize lhs into buf1
+		for i = 0; i <= lhsNonZero; i++ {
+			v := int64(lhs.lsu[i])*int64(normFactor) + carry
+			carry = v / Unit
+			buf1[i+lhsLeftShiftUnits] = int32(v - carry*Unit)
+		}
+		buf1[i+lhsLeftShiftUnits] = int32(carry) // additional carry on buf1[buf1len]
+		carry = 0
+		// normalize rhs into buf2
+		for i = 0; i <= rhsNonZero; i++ {
+			v := int64(rhs.lsu[i])*int64(normFactor) + carry
+			carry = v / Unit
+			buf2[i+rhsLeftShiftUnits] = int32(v - carry*Unit)
+		}
+		assertTrue(carry == 0, "carry must be 0 in divider normalization")
+	}
+	stop := buf2len - 1                                // stop index
+	vd0 := int64(buf2[rhsNonZero+rhsLeftShiftUnits])   // rhs most significant unit
+	vd1 := int64(buf2[rhsNonZero+rhsLeftShiftUnits-1]) // rhs second significant unit
+	for i := buf1len + dividendShift - 1; i >= stop; i-- {
+		// D3. make the guess on u1
+		u0 := int64(buf1[i+1])
+		var u1 int64
+		if i >= 0 {
+			u1 = int64(buf1[i])
+		}
+		v := u0*Unit + u1
+		qhat := v / vd0
+		rhat := v - qhat*vd0
+		assertTrue(qhat < Unit, "qhat must be less than Unit")
+		var u2 int64
+		if i > 0 {
+			u2 = int64(buf1[i-1])
+		}
+		for qhat*vd1 > rhat*Unit+u2 { // check if qhat can satisfy next unit
+			qhat--      // decrese qhat
+			rhat += vd0 // increase rhat
+		}
+		// D4. multiply and subtract
+		var mulV, mulV0, carry int64 // the product, product within current unit, carry of multiplication
+		var subV, borrow int32       // the diff and boorow of subtraction
+		var k, msIdx int
+		for msIdx = i - buf2len + 1; k < buf2len; k, msIdx = k+1, msIdx+1 {
+			mulV = qhat*int64(buf2[k]) + carry                              // mul
+			carry = mulV / Unit                                             // update carry
+			mulV0 = mulV - carry*Unit                                       // in current unit
+			subV, borrow = subWithBorrow(buf1[msIdx], int32(mulV0), borrow) // sub
+			buf1[msIdx] = subV                                              // update buf1 with result
+		}
+		borrow = buf1[msIdx] - int32(carry) + borrow
+		if borrow == -1 { // qhat is larger, cannot satisfy the whole decimal
+			// D6. add back (reverse subtract)
+			qhat--                                                              // decrease qhat
+			borrow = 0                                                          // reset borrow to zero
+			for msIdx = i - buf2len + 1; k < buf2len; k, msIdx = k+1, msIdx+1 { // reverse subtract
+				buf1[msIdx], borrow = subWithBorrow(0, buf1[msIdx], borrow)
+			}
+		}
+		buf1[msIdx] = 0 // clear buf1 because multiply w/ subtract succeeds
+	}
+	// now we have remainder in buf1
+	assertTrue(buf1[buf1len] == 0, "value must be zero")
+
+	// divide by normFactor, put quotient in result
+	var rem int64
+	resultNonZero := -1
+	for i := buf1len - 1; i >= 0; i-- {
+		v := rem*Unit + int64(buf1[i])
+		if v == 0 {
+			continue
+		}
+		q := v / int64(normFactor)
+		rem = v - q*int64(normFactor) // update remainder
+		if q > 0 && resultNonZero < 0 {
+			resultNonZero = i
+		}
+		result.lsu[i] = int32(q) // update result
+	}
+	// because we multiply lhs and rhs with identical normFactor, the remainder must be zero.
+	assertTrue(rem == 0, "remainder must be zero")
+
+	if resultNonZero >= remainderFracUnits {
+		result.intg = int8(resultNonZero + 1 - remainderFracUnits)
+	} else {
+		result.intg = 0
+	}
+	result.frac = int8(remainderFrac) // keep fraction precision like subtraction
 	return nil
 }
 

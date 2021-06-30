@@ -30,30 +30,41 @@ const HalfUnit = Unit / 2
 // should be reconsidered carefully!
 func (fd *FixedDecimal) Round(frac int) {
 	thisFrac := int(fd.Frac())
-	if frac >= thisFrac { // round precision is larger than current decimal's precision
-		return
-	}
 	intgUnits := fd.IntgUnits()
 	fracUnits := fd.FracUnits()
+	if frac >= thisFrac { // round precision is larger than current decimal's precision
+		roundFracUnits := getUnits(frac)
+		if roundFracUnits == fracUnits { // same number of frac units
+			fd.frac = int8(frac)
+			return
+		}
+		// copy with offset
+		copy(fd.lsu[roundFracUnits-fracUnits:roundFracUnits+intgUnits], fd.lsu[:fracUnits+intgUnits])
+		fd.frac = int8(frac)
+		return
+	}
 	var trunc int // how many digits should be truncated/rounded up
 	var carry int32
+	var roundFrac int8
 	if frac < 0 { // round integral part
-		roundIntgUnits := getUnits(-frac + 1)
-		if roundIntgUnits > intgUnits { // integral round precision is larger than current value
-			fd.SetZero() // round to zero, no matter positive or negative
+		intg := -frac
+		if intg+1 > int(fd.Intg()) {
+			fd.SetZero()
 			return
 		}
 		copy(fd.lsu[:intgUnits], fd.lsu[fracUnits:fracUnits+intgUnits]) // remove fractional units
-		for i := intgUnits + 1; i < intgUnits+fracUnits; i++ {
+		for i := intgUnits; i < intgUnits+fracUnits; i++ {
 			fd.lsu[i] = 0 // reset higher units to zero
 		}
 		fracUnits = 0
-		trunc = -frac
+		roundFrac = 0
+		trunc = intg
 	} else {
+		roundFrac = int8(frac)
 		roundFracUnits := getUnits(frac + 1) // how many units we need to keep for rounding
 		if roundFracUnits < fracUnits {      // this decimal has more frac units, drop them
 			if mod9(frac) == 0 { // at edge of one unit
-				if unitGreaterEqualHalf(fd.lsu[fracUnits-roundFracUnits-1]) { // check rounding on second unit
+				if unitGreaterEqualHalf(fd.lsu[fracUnits-roundFracUnits]) { // check rounding on second unit
 					carry = 1
 				}
 				roundFracUnits-- // drop checked unit because carry is analyzed
@@ -64,7 +75,7 @@ func (fd *FixedDecimal) Round(frac int) {
 			}
 			fracUnits = roundFracUnits
 		} else if roundFracUnits > fracUnits { // rounding precision larger than current decimal frac units
-			return
+			panic("unreachable")
 		} else if mod9(frac) == 0 { // roundFracUnits == fracUnits and at edge of one uint
 			if unitGreaterEqualHalf(fd.lsu[0]) { // check rounding on least significant unit
 				carry = 1
@@ -77,25 +88,33 @@ func (fd *FixedDecimal) Round(frac int) {
 		}
 		trunc = fracUnits*DigitsPerUnit - frac // fractional digits to remove
 	}
-	roundIdx := div9(trunc) // which unit to start rounding
-	roundPos := mod9(trunc) // within one unit, which position to start rounding
-	roundHalfUp(fd, intgUnits, fracUnits, roundIdx, roundPos, carry)
+	roundHalfUp(fd, intgUnits, fracUnits, trunc, roundFrac, carry)
 }
 
 func (fd *FixedDecimal) RoundTo(result *FixedDecimal, frac int) {
 	thisFrac := int(fd.Frac())
-	if frac >= thisFrac { // round precision is larger than or equal to current decimal's precision
-		*result = *fd
-		return
-	}
 	intgUnits := fd.IntgUnits()
 	fracUnits := fd.FracUnits()
+	if frac >= thisFrac { // round precision is larger than or equal to current decimal's precision
+		roundFracUnits := getUnits(frac)
+		if roundFracUnits == fracUnits { // same number of frac units
+			*result = *fd // direct copy
+			result.frac = int8(frac)
+			return
+		}
+		// copy with offset
+		copy(result.lsu[roundFracUnits-fracUnits:roundFracUnits+intgUnits], fd.lsu[:fracUnits+intgUnits])
+		result.intg = fd.intg
+		result.frac = int8(frac)
+		return
+	}
 	var trunc int // how many digits should be truncated/rounded up
 	var carry int32
+	var roundFrac int8
 	if frac < 0 { // round integral part
-		roundIntgUnits := getUnits(-frac + 1)
-		if roundIntgUnits > intgUnits { // integral round precision is larger than current value
-			result.SetZero() // round to zero, no matter positive or negative
+		intg := -frac
+		if intg+1 > int(fd.Intg()) {
+			result.SetZero()
 			return
 		}
 		copy(result.lsu[:intgUnits], fd.lsu[fracUnits:fracUnits+intgUnits]) // remove fractional units
@@ -103,12 +122,14 @@ func (fd *FixedDecimal) RoundTo(result *FixedDecimal, frac int) {
 			result.lsu[i] = 0 // reset higher units to zero
 		}
 		fracUnits = 0
-		trunc = -frac
+		roundFrac = 0
+		trunc = intg
 	} else {
+		roundFrac = int8(frac)
 		roundFracUnits := getUnits(frac + 1) // how many units we need to keep for rounding
 		if roundFracUnits < fracUnits {      // this decimal has more frac units, drop them
 			if mod9(frac) == 0 { // at edge of one unit
-				if unitGreaterEqualHalf(fd.lsu[fracUnits-roundFracUnits-1]) { // check rounding on second unit
+				if unitGreaterEqualHalf(fd.lsu[fracUnits-roundFracUnits]) { // check rounding on second unit
 					carry = 1
 				}
 				roundFracUnits-- // drop checked unit because carry is analyzed
@@ -119,10 +140,9 @@ func (fd *FixedDecimal) RoundTo(result *FixedDecimal, frac int) {
 			}
 			fracUnits = roundFracUnits
 		} else if roundFracUnits > fracUnits { // rounding precision larger than current decimal frac units
-			*result = *fd
-			return
+			panic("unreachable")
 		} else if mod9(frac) == 0 { // roundFracUnits == fracUnits and at edge of one uint
-			if unitGreaterEqualHalf(fd.lsu[0]) { // check rounding on least significant unit
+			if unitGreaterEqualHalf(fd.lsu[0]) { // check rounding on next unit
 				carry = 1
 			}
 			copy(result.lsu[:fracUnits+intgUnits-1], fd.lsu[1:fracUnits+intgUnits]) // drop checked unit
@@ -135,13 +155,13 @@ func (fd *FixedDecimal) RoundTo(result *FixedDecimal, frac int) {
 		}
 		trunc = fracUnits*DigitsPerUnit - frac
 	}
-	roundIdx := div9(trunc) // which unit to start rounding
-	roundPos := mod9(trunc) // within one unit, which position to start rounding
-	roundHalfUp(result, intgUnits, fracUnits, roundIdx, roundPos, carry)
+	roundHalfUp(result, intgUnits, fracUnits, trunc, roundFrac, carry)
 }
 
-func roundHalfUp(fd *FixedDecimal, intgUnits, fracUnits, roundIdx, roundPos int, carry int32) {
-	clearIdx := roundIdx // where we need to clear the units below
+func roundHalfUp(fd *FixedDecimal, intgUnits, fracUnits, trunc int, roundFrac int8, carry int32) {
+	roundIdx := div9(trunc) // which unit to start rounding
+	roundPos := mod9(trunc) // within one unit, which position to start rounding
+	clearIdx := roundIdx    // where we need to clear the units below
 	if roundPos != 0 {
 		switch roundPos { // unroll the code to let compiler optimize arithmetic with const values
 		case 1:
@@ -260,7 +280,7 @@ func roundHalfUp(fd *FixedDecimal, intgUnits, fracUnits, roundIdx, roundPos int,
 	}
 	neg := fd.IsNeg()
 	fd.intg = int8(intgUnits * DigitsPerUnit)
-	fd.frac = int8(fracUnits * DigitsPerUnit)
+	fd.frac = roundFrac
 	if neg {
 		fd.setNeg()
 	}
