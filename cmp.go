@@ -2,7 +2,7 @@ package fxd
 
 func (fd *FixedDecimal) Compare(rhs *FixedDecimal) int {
 	lneg := fd.IsNeg()
-	rneg := fd.IsNeg()
+	rneg := rhs.IsNeg()
 	if lneg { // left is negative
 		if rneg { // right is negative too
 			return cmpAbs(rhs, fd) // swap and compare absolute value
@@ -20,16 +20,19 @@ func (fd *FixedDecimal) Compare(rhs *FixedDecimal) int {
 func cmpAbs(lhs *FixedDecimal, rhs *FixedDecimal) int {
 	liu, lfu := lhs.IntgUnits(), lhs.FracUnits()
 	riu, rfu := rhs.IntgUnits(), rhs.FracUnits()
+	return cmpAbsLsu(liu, lfu, &lhs.lsu, riu, rfu, &rhs.lsu)
+}
 
+func cmpAbsLsu(liu, lfu int, llsu *[MaxUnits]int32, riu, rfu int, rlsu *[MaxUnits]int32) int {
 	// compare integral parts
 	for liu > 0 && liu > riu { // lhs has more integral units
-		if lhs.lsu[lfu+liu-1] > 0 {
+		if llsu[lfu+liu-1] > 0 {
 			return 1
 		}
 		liu--
 	}
 	for riu > 0 && riu > liu { // rhs has more integral units
-		if rhs.lsu[rfu+riu-1] > 0 {
+		if rlsu[rfu+riu-1] > 0 {
 			return -1
 		}
 		riu--
@@ -38,8 +41,8 @@ func cmpAbs(lhs *FixedDecimal, rhs *FixedDecimal) int {
 	i := liu + lfu - 1
 	j := riu + rfu - 1
 	for ; i >= 0 && j >= 0; i, j = i-1, j-1 {
-		lv := lhs.lsu[i]
-		rv := rhs.lsu[j]
+		lv := llsu[i]
+		rv := rlsu[j]
 		if lv > rv {
 			return 1
 		}
@@ -48,12 +51,12 @@ func cmpAbs(lhs *FixedDecimal, rhs *FixedDecimal) int {
 		}
 	}
 	for ; i >= 0; i-- { // lhs still has units
-		if lhs.lsu[i] > 0 {
+		if llsu[i] > 0 {
 			return 1
 		}
 	}
 	for ; j >= 0; j-- { // rhs still has units
-		if rhs.lsu[j] > 0 {
+		if rlsu[j] > 0 {
 			return -1
 		}
 	}

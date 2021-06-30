@@ -442,3 +442,9 @@ func unitsGreaterEqual(lhs []int32, rhs []int32) bool {
 	}
 	return true
 }
+
+func assertTrue(val bool, stmt string) {
+	if !val {
+		panic(stmt)
+	}
+}
