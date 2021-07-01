@@ -103,6 +103,12 @@ func (fd *FixedDecimal) SetOne() {
 	fd.lsu[0] = 1
 }
 
+func (fd *FixedDecimal) Reset() {
+	fd.intg = 0
+	fd.frac = 0
+	fd.resetUnits()
+}
+
 // reset units.
 // this method is useful especially in case the struct
 // is cached/reused due to performance consideration.
@@ -161,9 +167,7 @@ func (fd *FixedDecimal) FracUnits() int {
 // If reset flag is true, always clear all fields first.
 func (fd *FixedDecimal) FromInt64(val int64, reset bool) {
 	if reset {
-		fd.intg = 0
-		fd.frac = 0
-		fd.resetUnits()
+		fd.Reset()
 	}
 	if val == 0 { // is zero
 		fd.intg = 1

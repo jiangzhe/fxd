@@ -6,19 +6,41 @@ import (
 	"unsafe"
 )
 
-// DecimalFromString parses provided string and fills the value into given decimal.
-func DecimalFromAsciiString(s string, result *FixedDecimal) error {
+// DecimalFromAsciiString creates a new decimal from given string
+func DecimalFromAsciiString(s string) (FixedDecimal, error) {
+	var fd FixedDecimal
+	err := fd.FromAsciiString(s, false)
+	return fd, err
+}
+
+// FromAsciiString parses given numeric string and set value to current decimal.
+func (fd *FixedDecimal) FromAsciiString(s string, reset bool) error {
 	var bs []byte
 	sh := (*reflect.StringHeader)(unsafe.Pointer(&s))
 	bh := (*reflect.SliceHeader)(unsafe.Pointer(&bs))
 	bh.Data = sh.Data
 	bh.Len = sh.Len
 	bh.Cap = sh.Len
-	return DecimalFromBytesString(bs, result)
+	return fd.FromBytesString(bs, reset)
 }
 
-// DecimalFromBytesString creates a new FixedPointDecimal given numeric string.
-func DecimalFromBytesString(bs []byte, result *FixedDecimal) error {
+// DecimalFromBytesString creates a new decimal from given bytes string
+func DecimalFromBytesString(bs []byte) (FixedDecimal, error) {
+	var fd FixedDecimal
+	err := fd.FromBytesString(bs, false)
+	return fd, err
+}
+
+// FromBytesString parses given numeric string and set value to current decimal.
+// if reset=true, will always reset current decimal before parsing.
+func (fd *FixedDecimal) FromBytesString(bs []byte, reset bool) error {
+	if reset {
+		fd.Reset()
+	}
+	if len(bs) == 0 {
+		return DecErrConversionSyntax
+	}
+
 	exp := 0 // working exponent [assume 0]
 	d := 0   // count of digits found in decimal part
 	var dotchar int = -1
@@ -60,27 +82,28 @@ func DecimalFromBytesString(bs []byte, result *FixedDecimal) error {
 	}
 
 	if last == -1 { // no digits yet
-		if i == len(bs)-1 { // and no more to come
-			return DecErrConversionSyntax
-		}
 		// Infinities and NaNs are possible, here
 		if dotchar != -1 { // unless has a dot
 			return DecErrConversionSyntax
 		}
-		result.SetZero() // be optimitic
+		fd.SetZero() // be optimitic
 		if decBiStr(bs[i:], decStrInfinityUpperFull, decStrInfinityLowerFull) || decBiStr(bs[i:], decStrInfinityUpperFull, decStrInfinityLowerAbbr) {
-			result.setInf()
+			fd.setInf()
 			return nil
 		}
 		// a NaN expected
 		if c = bs[i]; c != 'n' && c != 'N' {
 			return DecErrConversionSyntax
 		}
-		i++
+		if i++; i == len(bs) {
+			return DecErrConversionSyntax
+		}
 		if c = bs[i]; c != 'a' && c != 'A' {
 			return DecErrConversionSyntax
 		}
-		i++
+		if i++; i == len(bs) {
+			return DecErrConversionSyntax
+		}
 		if c = bs[i]; c != 'n' && c != 'N' {
 			return DecErrConversionSyntax
 		}
@@ -93,7 +116,7 @@ func DecimalFromBytesString(bs []byte, result *FixedDecimal) error {
 			}
 		}
 		if cfirst == len(bs) { // "NaN", maybe with all 0s
-			result.setNaN()
+			fd.setNaN()
 			return nil
 		}
 		// todo: additinal payload after NaN
@@ -108,20 +131,23 @@ func DecimalFromBytesString(bs []byte, result *FixedDecimal) error {
 		}
 		// Found 'e' or 'E'
 		// sign no longer required
-		i++ // to (possible) sign
+		if i++; i == len(bs) { // to (possible) sign
+			return DecErrConversionSyntax
+		}
 		c = bs[i]
 		if c == '-' {
 			nege = true
-			i++
+			if i++; i == len(bs) {
+				return DecErrConversionSyntax
+			}
 		} else if c == '+' {
-			i++
+			if i++; i == len(bs) {
+				return DecErrConversionSyntax
+			}
 		}
-		if i == len(bs) {
-			return DecErrConversionSyntax
-		}
+
 		for {
-			c = bs[i]
-			if c == '0' && i != len(bs)-1 { // strip insignificant zeros
+			if c = bs[i]; c == '0' && i != len(bs)-1 { // strip insignificant zeros
 				i++
 			} else {
 				break
@@ -205,8 +231,8 @@ func DecimalFromBytesString(bs []byte, result *FixedDecimal) error {
 			if mod9(cut) > 0 {
 				continue
 			}
-			result.lsu[up] = int32(out) // write unit
-			up--                        // prepare for unit below
+			fd.lsu[up] = int32(out) // write unit
+			up--                    // prepare for unit below
 			out = 0
 		}
 		// input integral digits processed.
@@ -214,12 +240,12 @@ func DecimalFromBytesString(bs []byte, result *FixedDecimal) error {
 		i++
 		// handle cut > 0, e.g. '1E2', '1E20'
 		re := mod9(cut)
-		result.lsu[up] = int32(out * pow10[re])
+		fd.lsu[up] = int32(out * pow10[re])
 		up--
 		out = 0
 		cut -= re
 		for ; cut > 0; cut -= DigitsPerUnit { // zero with large exponent
-			result.lsu[up] = 0
+			fd.lsu[up] = 0
 			up--
 		}
 	}
@@ -227,7 +253,7 @@ func DecimalFromBytesString(bs []byte, result *FixedDecimal) error {
 		out := 0 // accumulator in unit
 		cut := DigitsPerUnit
 		for ; headingZeros >= DigitsPerUnit; headingZeros -= DigitsPerUnit { // current unit filled all zeros
-			result.lsu[up] = 0
+			fd.lsu[up] = 0
 			up--
 		}
 		cut -= headingZeros
@@ -245,17 +271,17 @@ func DecimalFromBytesString(bs []byte, result *FixedDecimal) error {
 			if cut > 0 {
 				continue // more for this unit
 			}
-			result.lsu[up] = int32(out) // write unit
-			up--                        // prepare for unit below
+			fd.lsu[up] = int32(out) // write unit
+			up--                    // prepare for unit below
 			cut = DigitsPerUnit
 			out = 0
 		}
-		result.lsu[up] = int32(out) // write lsu
+		fd.lsu[up] = int32(out) // write lsu
 	}
-	result.intg = int8(digits - frac)
-	result.frac = int8(frac)
+	fd.intg = int8(digits - frac)
+	fd.frac = int8(frac)
 	if neg {
-		result.setNeg()
+		fd.setNeg()
 	}
 	return nil
 }
@@ -384,9 +410,6 @@ func appendFrac(fd *FixedDecimal, up int, fracDigits int, buf []byte) []byte {
 		// non-zero
 		// XXX,xxx,xxx
 		if uv >= BinHighUnit {
-			if fracDigits == 0 {
-				break
-			}
 			high := uv / BinHighUnit
 			startIdx := int(high)*4 + 1
 			if fracDigits < 3 {

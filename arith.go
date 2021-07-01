@@ -190,7 +190,7 @@ func DecimalMod(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) erro
 // commonSeg uses normal addition, taking care of carry.
 // intgSeg is added with 0 and carry.
 func addAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) error {
-	result.resetUnits() // always clear result units first
+	result.Reset() // always clear result first
 	liu, lfu := lhs.IntgUnits(), lhs.FracUnits()
 	riu, rfu := rhs.IntgUnits(), rhs.FracUnits()
 	var lhsIdx, rhsIdx, resultIdx int
@@ -270,7 +270,7 @@ func addAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) error {
 // ---------------------------------------
 //       |intgSeg |  commonSeg  |fracSeg |
 func subAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) (bool, error) {
-	result.resetUnits() // always clear result units first
+	result.Reset() // always clear result first
 	liu, lfu := lhs.IntgUnits(), lhs.FracUnits()
 	riu, rfu := rhs.IntgUnits(), rhs.FracUnits()
 	var lhsIdx, rhsIdx, resultIdx int
@@ -340,7 +340,7 @@ func subAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) (bool, e
 // The result precision is extended to the maximum possible one, until reaching
 // the limitation of MaxUnits or MaxFracUnits.
 func mulAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) error {
-	result.resetUnits() // always clear result units first
+	result.Reset() // always clear result first
 	// result integral digits should be sum of left and right integral digits
 	resultIntgDigits := int(lhs.Intg() + rhs.Intg())
 	resultIntgUnits := getUnits(resultIntgDigits)
@@ -403,7 +403,7 @@ func mulAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) error {
 // divAbs divides two decimals' absolute values.
 // It's implementation of Knuth's Algorithm 4.3.1 D, with support on frational numbers.
 func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac int) error {
-	result.resetUnits() // always clear result units first
+	result.Reset() // always clear result first
 	lhsIntg := int(lhs.Intg())
 	liu := getUnits(lhsIntg)
 	lhsFrac := int(lhs.Frac())
@@ -595,7 +595,7 @@ func divAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal, incrFrac
 }
 
 func modAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) error {
-	result.resetUnits() // always clear result units first
+	result.Reset() // always clear result first
 	lhsIntg := int(lhs.Intg())
 	liu := getUnits(lhsIntg) // lhs intg units
 	lhsFrac := int(lhs.Frac())

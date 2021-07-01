@@ -21,64 +21,135 @@ func TestDecimalFromString(t *testing.T) {
 		"1E+2",
 		"1.0E-2",
 		"1.0e10",
+		"1.0e02",
 	} {
-		if err := DecimalFromBytesString([]byte(s), &fd); err != nil {
+		if err := fd.FromBytesString([]byte(s), true); err != nil {
 			t.Fatal("failed")
 		}
 		fmt.Printf("input=%v, result=%v\n", s, fd)
+	}
+
+	if _, err := DecimalFromAsciiString("100"); err != nil {
+		t.Fatal("failed")
+	}
+	if _, err := DecimalFromBytesString([]byte("100")); err != nil {
+		t.Fatal("failed")
+	}
+}
+
+func TestDecimalFromStringError(t *testing.T) {
+	var fd FixedDecimal
+	for _, s := range []string{
+		"",
+		"abc",
+		".",
+		".a",
+		".NaN",
+		"N",
+		"Nb",
+		"Na",
+		"Nab",
+		"NaNx",
+		"0x",
+		"0E",
+		".1e+",
+		".1e-",
+		".1e+f",
+		".1e12345",
+		".1e-200",
+		"1234567890123456789012345678901234567890123456789012345678901234567890",
+	} {
+		if err := fd.FromBytesString([]byte(s), true); err == nil {
+			t.Fatal("failed")
+		}
+	}
+}
+
+func TestDecimalFromInt64(t *testing.T) {
+	fd := DecimalZero()
+	if fd.ToString(-1) != "0" {
+		t.Fatal("failed")
+	}
+	fd = DecimalOne()
+	if fd.ToString(-1) != "1" {
+		t.Fatal("failed")
+	}
+	fd = DecimalFromInt64(42)
+	if fd.ToString(-1) != "42" {
+		t.Fatal("failed")
+	}
+	for _, n := range []int64{
+		0, 1, -1, 100, 1 << 32, (1 << 63) - 1, -(1 << 63),
+	} {
+		fd.FromInt64(n, true)
+		fmt.Printf("input=%v, result=%v\n", n, fd)
 	}
 }
 
 func TestDecimalToString(t *testing.T) {
 	type tscase struct {
 		input    string
+		frac     int
 		expected string
 	}
 
 	var fd FixedDecimal
 	for _, c := range []tscase{
-		{"0", "0"},
-		{"1", "1"},
-		{"-1", "-1"},
-		{"+1", "1"},
-		{"123", "123"},
-		{"123456789012345", "123456789012345"},
-		{"0.0", "0.0"},
-		{"0.100", "0.100"},
-		{"0.1", "0.1"},
-		{"0.12345678901234567890", "0.12345678901234567890"},
-		{"0.123", "0.123"},
-		{"1.0", "1.0"},
-		{"-1.0", "-1.0"},
-		{"1e0", "1"},
-		{"1E1", "10"},
-		{"1E+2", "100"},
-		{"1.0E-2", "0.010"},
-		{"1.0e10", "10000000000"},
-		{"1.2345e20", "123450000000000000000"},
-		{"5.4433e4", "54433"},
-		{"5.4433e3", "5443.3"},
-		{"5.4433e2", "544.33"},
-		{"5.4433e1", "54.433"},
-		{"5.4433e0", "5.4433"},
-		{"5.4433e-1", "0.54433"},
-		{"5.4433e-2", "0.054433"},
-		{"5.4433e-3", "0.0054433"},
-		{"5.4433e-5", "0.000054433"},
-		{"5.4433e-6", "0.0000054433"},
-		{"5.4433e-7", "0.00000054433"},
-		{"5.4433e-8", "0.000000054433"},
-		{"5.4433e-9", "0.0000000054433"},
-		{"5.4433e-10", "0.00000000054433"},
-		{"5.4433e-11", "0.000000000054433"},
-		{"5.4433e-20", "0.000000000000000000054433"},
-		{"Inf", "Infinity"},
-		{"NaN", "NaN"},
+		{"0", -1, "0"},
+		{"1", -1, "1"},
+		{"-1", -1, "-1"},
+		{"+1", -1, "1"},
+		{"123", -1, "123"},
+		{"123456789012345", -1, "123456789012345"},
+		{"0.0", -1, "0.0"},
+		{"0.100", -1, "0.100"},
+		{"0.1", -1, "0.1"},
+		{"0.12345678901234567890", -1, "0.12345678901234567890"},
+		{"0.123", -1, "0.123"},
+		{"1.0", -1, "1.0"},
+		{"-1.0", -1, "-1.0"},
+		{"1e0", -1, "1"},
+		{"1E1", -1, "10"},
+		{"1E+2", -1, "100"},
+		{"1.0E-2", -1, "0.010"},
+		{"1.0e10", -1, "10000000000"},
+		{"1.2345e20", -1, "123450000000000000000"},
+		{"5.4433e4", -1, "54433"},
+		{"5.4433e3", -1, "5443.3"},
+		{"5.4433e2", -1, "544.33"},
+		{"5.4433e1", -1, "54.433"},
+		{"5.4433e0", -1, "5.4433"},
+		{"5.4433e-1", -1, "0.54433"},
+		{"5.4433e-2", -1, "0.054433"},
+		{"5.4433e-3", -1, "0.0054433"},
+		{"5.4433e-5", -1, "0.000054433"},
+		{"5.4433e-6", -1, "0.0000054433"},
+		{"5.4433e-7", -1, "0.00000054433"},
+		{"5.4433e-8", -1, "0.000000054433"},
+		{"5.4433e-9", -1, "0.0000000054433"},
+		{"5.4433e-10", -1, "0.00000000054433"},
+		{"5.4433e-11", -1, "0.000000000054433"},
+		{"5.4433e-20", -1, "0.000000000000000000054433"},
+		{"Inf", -1, "Infinity"},
+		{"NaN", -1, "NaN"},
+		{"123456789.123456789", 0, "123456789"},
+		{"123456789.123456789", 1, "123456789.1"},
+		{"123456789.123456789", 2, "123456789.12"},
+		{"123456789.123456789", 3, "123456789.123"},
+		{"123456789.123456789", 4, "123456789.1234"},
+		{"123456789.123456789", 5, "123456789.12345"},
+		{"123456789.123456789", 6, "123456789.123456"},
+		{"123456789.123456789", 7, "123456789.1234567"},
+		{"123456789.123456789", 8, "123456789.12345678"},
+		{"123456789.123456789", 9, "123456789.123456789"},
+		{"123456789.123456789", 10, "123456789.1234567890"},
+		{"1.021", 2, "1.02"},
+		{"1.00021", 2, "1.00"},
 	} {
-		if err := DecimalFromBytesString([]byte(c.input), &fd); err != nil {
+		if err := fd.FromBytesString([]byte(c.input), true); err != nil {
 			t.Fatalf("failed %v", err)
 		}
-		actual := fd.ToString(-1)
+		actual := fd.ToString(c.frac)
 		if actual != c.expected {
 			t.Fatalf("result mismatch: actual=%v, expected=%v", actual, c.expected)
 		}
@@ -121,10 +192,10 @@ func TestDecimalAdd(t *testing.T) {
 		{"999999999999999999", "1", "1000000000000000000"},
 		{"1", "999999999999999999", "1000000000000000000"},
 	} {
-		if err := DecimalFromAsciiString(c.input1, &fd1); err != nil {
+		if err := fd1.FromAsciiString(c.input1, true); err != nil {
 			t.Fatalf("failed %v", err)
 		}
-		if err := DecimalFromAsciiString(c.input2, &fd2); err != nil {
+		if err := fd2.FromAsciiString(c.input2, true); err != nil {
 			t.Fatalf("failed %v", err)
 		}
 		if err := DecimalAdd(&fd1, &fd2, &fd3); err != nil {
@@ -175,10 +246,10 @@ func TestDecimalSub(t *testing.T) {
 		{"1000000000", "1", "999999999"},
 		{"1", "1000000000", "-999999999"},
 	} {
-		if err := DecimalFromAsciiString(c.input1, &fd1); err != nil {
+		if err := fd1.FromAsciiString(c.input1, true); err != nil {
 			t.Fatalf("failed %v", err)
 		}
-		if err := DecimalFromAsciiString(c.input2, &fd2); err != nil {
+		if err := fd2.FromAsciiString(c.input2, true); err != nil {
 			t.Fatalf("failed %v", err)
 		}
 		if err := DecimalSub(&fd1, &fd2, &fd3); err != nil {
@@ -226,10 +297,10 @@ func TestDecimalMul(t *testing.T) {
 		{"1.234567890", "0.0000000001", "0.0000000001234567890"},
 		{"-1.234567890", "0.0000000001", "-0.0000000001234567890"},
 	} {
-		if err := DecimalFromAsciiString(c.input1, &fd1); err != nil {
+		if err := fd1.FromAsciiString(c.input1, true); err != nil {
 			t.Fatalf("failed %v", err)
 		}
-		if err := DecimalFromAsciiString(c.input2, &fd2); err != nil {
+		if err := fd2.FromAsciiString(c.input2, true); err != nil {
 			t.Fatalf("failed %v", err)
 		}
 		if err := DecimalMul(&fd1, &fd2, &fd3); err != nil {
@@ -358,10 +429,10 @@ func TestDecimalDiv(t *testing.T) {
 		{"4000000000", "0.000000003", "1333333333333333333.333333333333333333"},
 		{"1", "500000000.1", "0.000000001"},
 	} {
-		if err := DecimalFromAsciiString(c.input1, &fd1); err != nil {
+		if err := fd1.FromAsciiString(c.input1, true); err != nil {
 			t.Fatalf("failed %v", err)
 		}
-		if err := DecimalFromAsciiString(c.input2, &fd2); err != nil {
+		if err := fd2.FromAsciiString(c.input2, true); err != nil {
 			t.Fatalf("failed %v", err)
 		}
 		if err := DecimalDiv(&fd1, &fd2, &fd3, 4); err != nil {
@@ -416,10 +487,10 @@ func TestDecimalCompare(t *testing.T) {
 		{"100000000000000000000000001", "100000000000000000000000000", 1},
 		{"100000000000000000000000000", "100000000000000000000000001", -1},
 	} {
-		if err := DecimalFromAsciiString(c.input1, &fd1); err != nil {
+		if err := fd1.FromAsciiString(c.input1, true); err != nil {
 			t.Fatalf("failed %v", err)
 		}
-		if err := DecimalFromAsciiString(c.input2, &fd2); err != nil {
+		if err := fd2.FromAsciiString(c.input2, true); err != nil {
 			t.Fatalf("failed %v", err)
 		}
 		actual := fd1.Compare(&fd2)
@@ -433,8 +504,8 @@ func TestDecimalCompare(t *testing.T) {
 func TestDecimalArithError(t *testing.T) {
 	var fd1, fd2, fd3 FixedDecimal
 	var err error
-	_ = DecimalFromAsciiString("1", &fd1)
-	_ = DecimalFromAsciiString("0", &fd2)
+	_ = fd1.FromAsciiString("1", true)
+	_ = fd2.FromAsciiString("0", true)
 	// div by zero
 	if err = DecimalDiv(&fd1, &fd2, &fd3, DivIncrFrac); err == nil {
 		t.Fatal("failed")
@@ -444,8 +515,8 @@ func TestDecimalArithError(t *testing.T) {
 		t.Fatal("failed")
 	}
 	// mul overflow
-	_ = DecimalFromAsciiString("1e41", &fd1)
-	_ = DecimalFromAsciiString("1e40", &fd2)
+	_ = fd1.FromAsciiString("1e41", true)
+	_ = fd2.FromAsciiString("1e40", true)
 	if err = DecimalMul(&fd1, &fd2, &fd3); err == nil {
 		t.Fatal("failed")
 	}
@@ -454,8 +525,8 @@ func TestDecimalArithError(t *testing.T) {
 func TestDecimalArithNaN(t *testing.T) {
 	var fd1, fd2, fd3 FixedDecimal
 	var err error
-	_ = DecimalFromAsciiString("NaN", &fd1)
-	_ = DecimalFromAsciiString("1", &fd2)
+	_ = fd1.FromAsciiString("NaN", true)
+	_ = fd2.FromAsciiString("1", true)
 	// add NaN
 	if err = DecimalAddAny(&fd1, &fd2, &fd3); err != nil {
 		t.Fatal("failed")
@@ -522,8 +593,8 @@ func TestDecimalArithNaN(t *testing.T) {
 		t.Fatal("failed")
 	}
 
-	_ = DecimalFromAsciiString("1", &fd1)
-	_ = DecimalFromAsciiString("1", &fd2)
+	_ = fd1.FromAsciiString("1", true)
+	_ = fd2.FromAsciiString("1", true)
 	if err = DecimalAddAny(&fd2, &fd1, &fd3); err != nil {
 		t.Fatal("failed")
 	}
@@ -559,8 +630,8 @@ func TestDecimalArithNaN(t *testing.T) {
 func TestDecimalArithInf(t *testing.T) {
 	var fd1, fd2, fd3 FixedDecimal
 	var err error
-	_ = DecimalFromAsciiString("Inf", &fd1)
-	_ = DecimalFromAsciiString("1", &fd2)
+	_ = fd1.FromAsciiString("Inf", true)
+	_ = fd2.FromAsciiString("1", true)
 	// add Inf
 	if err = DecimalAddAny(&fd1, &fd2, &fd3); err != nil {
 		t.Fatal("failed")
@@ -627,8 +698,8 @@ func TestDecimalArithInf(t *testing.T) {
 		t.Fatal("failed")
 	}
 
-	_ = DecimalFromAsciiString("1", &fd1)
-	_ = DecimalFromAsciiString("1", &fd2)
+	_ = fd1.FromAsciiString("1", true)
+	_ = fd2.FromAsciiString("1", true)
 	if err = DecimalAddAny(&fd2, &fd1, &fd3); err != nil {
 		t.Fatal("failed")
 	}
@@ -796,7 +867,7 @@ func TestDecimalRound(t *testing.T) {
 		{"0.999999999", 1, "1.0"},
 		{"0.999999999", 0, "1"},
 	} {
-		if err := DecimalFromAsciiString(c.input1, &fd1); err != nil {
+		if err := fd1.FromAsciiString(c.input1, true); err != nil {
 			t.Fatalf("failed %v", err)
 		}
 		fd1.RoundTo(&fd2, c.frac)
@@ -884,7 +955,7 @@ func TestDecimalFormat(t *testing.T) {
 		{"123456789123456789", 18, "123456789123456789.000000000000000000"},
 		{"123456789123456789", 19, "123456789123456789.0000000000000000000"},
 	} {
-		if err := DecimalFromBytesString([]byte(c.input), &fd); err != nil {
+		if err := fd.FromAsciiString(c.input, true); err != nil {
 			t.Fatalf("failed %v", err)
 		}
 		actual := fd.ToString(c.frac)
@@ -896,11 +967,22 @@ func TestDecimalFormat(t *testing.T) {
 
 func TestDecimalNormal(t *testing.T) {
 	var dec FixedDecimal
-	if err := DecimalFromAsciiString("-100", &dec); err != nil {
+	if err := dec.FromAsciiString("-100", false); err != nil {
 		t.Fatal("failed")
 	}
 	dec.setNormal()
 	if !dec.IsNeg() {
+		t.Fatal("failed")
+	}
+	dec.SetOne()
+	if dec.IsSpecial() {
+		t.Fatal("failed")
+	}
+	if dec.ToString(-1) != "1" {
+		t.Fatal("failed")
+	}
+	dec.FromInt64(100, true)
+	if dec.ToString(-1) != "100" {
 		t.Fatal("failed")
 	}
 }
@@ -1026,10 +1108,10 @@ func TestDecimalMod(t *testing.T) {
 		{"1000000000000000001", "500000000.1", "300000001.1"},
 		{"0.1", "0.20000000001", "0.10000000000"},
 	} {
-		if err := DecimalFromAsciiString(c.input1, &fd1); err != nil {
+		if err := fd1.FromAsciiString(c.input1, true); err != nil {
 			t.Fatalf("failed %v", err)
 		}
-		if err := DecimalFromAsciiString(c.input2, &fd2); err != nil {
+		if err := fd2.FromAsciiString(c.input2, true); err != nil {
 			t.Fatalf("failed %v", err)
 		}
 		if err := DecimalMod(&fd1, &fd2, &fd3); err != nil {
