@@ -321,8 +321,6 @@ func (fd *FixedDecimal) AppendStringBuffer(buf []byte, frac int) []byte {
 			// for each unit, we divide into 3 3-digit parts and print them each time
 			uv := fd.lsu[up]
 			if eliminateHeadingZeros && uv == 0 { // rare case, integral part exists but zero
-				eliminateHeadingZeros = false
-				buf = append(buf, '0')
 				continue
 			}
 			// XXX,xxx,xxx
@@ -343,6 +341,9 @@ func (fd *FixedDecimal) AppendStringBuffer(buf []byte, frac int) []byte {
 			}
 			// xxx,xxx,XXX
 			buf, eliminateHeadingZeros = d3str(int(uv), buf, eliminateHeadingZeros)
+		}
+		if eliminateHeadingZeros { // all integral units are zero
+			buf = append(buf, '0')
 		}
 	} else {
 		buf = append(buf, '0') // append 0 if no integral part

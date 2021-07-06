@@ -2,6 +2,7 @@ package fxd
 
 import (
 	"fmt"
+	"math/rand"
 	"testing"
 )
 
@@ -281,7 +282,7 @@ func TestDecimalMul(t *testing.T) {
 		{"-1", "1", "-1"},
 		{"-1", "-100", "100"},
 		{"1.0", "0", "0"},
-		{"1.0", "0.0", "0.00"},
+		{"1.0", "0.0", "0"},
 		{"-1.0", "0.01", "-0.010"},
 		{"-0.3", "1.27", "-0.381"},
 		{"-0.3", "-0.2", "0.06"},
@@ -1122,6 +1123,68 @@ func TestDecimalMod(t *testing.T) {
 		fmt.Printf("%v%%%v=%v\n", fd1.ToString(-1), fd2.ToString(-1), actual)
 		if actual != c.expected {
 			t.Fatalf("result mismatch")
+		}
+	}
+}
+
+func TestIterativeArith(t *testing.T) {
+	const n = 1024
+	c1 := genRandDecimalArray(n)
+	c2 := genRandDecimalArray(n)
+	_ = c1[n-1]
+	_ = c2[n-1]
+	for i := 2; i < n; i++ {
+		for j := 0; j < 1024; j++ {
+			lhs := c1[i]
+			if err := DecimalAdd(&lhs, &c2[i], &c1[i]); err != nil {
+				t.Fatalf("add error: %v", err)
+			}
+		}
+		for j := 0; j < 1024; j++ {
+			lhs := c1[i]
+			if err := DecimalSub(&lhs, &c2[i], &c1[i]); err != nil {
+				t.Fatalf("add error: %v", err)
+			}
+		}
+	}
+}
+
+func genRandDecimalArray(n int) []FixedDecimal {
+	fds := make([]FixedDecimal, n)
+	for i := range fds {
+		intg := rand.Int31n(1 << 30)
+		frac := rand.Int31n(1 << 20)
+		var s string
+		if frac > 0 {
+			s = fmt.Sprintf("%v.%v", intg, frac)
+		} else {
+			s = fmt.Sprintf("%v", intg)
+		}
+		if err := fds[i].FromAsciiString(s, false); err != nil {
+			panic(err)
+		}
+	}
+	return fds
+}
+
+func TestDecimalToInt(t *testing.T) {
+	type tcase struct {
+		input    string
+		expected int64
+	}
+	for _, c := range []tcase{
+		{"0", 0},
+		{"0.1", 0},
+		{"-0.1", 0},
+		{"0.5", 1},
+		{"-0.5", -1},
+		{"1000.2", 1000},
+		{"1000.5", 1001},
+	} {
+		fd, _ := DecimalFromAsciiString(c.input)
+		actual := fd.ToInt()
+		if actual != c.expected {
+			t.Fatalf("ToInt failed %v != %v", actual, c.expected)
 		}
 	}
 }
