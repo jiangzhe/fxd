@@ -127,7 +127,7 @@ func (fd *FixedDecimal) resetUnits() {
 // IsZero returns true if this decimal is zero.
 func (fd *FixedDecimal) IsZero() bool {
 	// single value comparison on intg and frac excludes special cases
-	return fd.lsu[0] == 0 && fd.intg == 1 && fd.frac == 0
+	return fd.allUnitsZero()
 }
 
 // allUnitsZero returns true if all units are zero.
@@ -208,4 +208,16 @@ func DecimalOne() (fd FixedDecimal) {
 func DecimalFromInt64(val int64) (fd FixedDecimal) {
 	fd.FromInt64(val, false)
 	return
+}
+
+// DecimalNeg negates the input decimal.
+func DecimalNeg(fd *FixedDecimal) {
+	if fd.IsZero() {
+		return
+	}
+	if fd.IsNeg() {
+		fd.setPos()
+	} else {
+		fd.setNeg()
+	}
 }
