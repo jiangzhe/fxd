@@ -705,7 +705,8 @@ func modAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) error {
 			}
 		}
 		if resultNonZero >= remainderFracUnits {
-			result.intg = int8(resultNonZero + 1 - remainderFracUnits)
+			resultIntgUnits := resultNonZero + 1 - remainderFracUnits
+			result.intg = int8(resultIntgUnits*DigitsPerUnit - unitLeadingZeroes(result.lsu[resultIntgUnits+remainderFracUnits-1]))
 		} else {
 			result.intg = 0
 		}
@@ -779,8 +780,9 @@ func modAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) error {
 		borrow = buf1[msIdx] - int32(carry) + borrow
 		if borrow == -1 { // qhat is larger, cannot satisfy the whole decimal
 			// D6. add back (reverse subtract)
-			qhat--                                                              // decrease qhat
-			borrow = 0                                                          // reset borrow to zero
+			qhat--     // decrease qhat
+			borrow = 0 // reset borrow to zero
+			k = 0
 			for msIdx = i - buf2len + 1; k < buf2len; k, msIdx = k+1, msIdx+1 { // reverse subtract
 				buf1[msIdx], borrow = subWithBorrow(0, buf1[msIdx], borrow)
 			}
@@ -809,7 +811,8 @@ func modAbs(lhs *FixedDecimal, rhs *FixedDecimal, result *FixedDecimal) error {
 	assertTrue(rem == 0, "remainder must be zero")
 
 	if resultNonZero >= remainderFracUnits {
-		result.intg = int8(resultNonZero + 1 - remainderFracUnits)
+		resultIntgUnits := resultNonZero + 1 - remainderFracUnits
+		result.intg = int8(resultIntgUnits*DigitsPerUnit - unitLeadingZeroes(result.lsu[resultIntgUnits+remainderFracUnits-1]))
 	} else {
 		result.intg = 0
 	}
