@@ -92,6 +92,7 @@ func (fd *FixedDecimal) Round(frac int) {
 }
 
 func (fd *FixedDecimal) RoundTo(result *FixedDecimal, frac int) {
+	result.intg = fd.intg // copy intg with sign for future check
 	thisFrac := int(fd.Frac())
 	intgUnits := fd.IntgUnits()
 	fracUnits := fd.FracUnits()
